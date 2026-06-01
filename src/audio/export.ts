@@ -69,14 +69,16 @@ function genEventsOffline(p: ImageProfile, feel: Feel, vc: Voicing, md: Mode, du
     air: false,
     idx: i,
   }));
-  tones.push({ iv: vc.airTone, gainMul: 0.09, air: true, idx: tones.length });
+  // Match engine.ts: air layer gain 0.18
+  tones.push({ iv: vc.airTone, gainMul: 0.18, air: true, idx: tones.length });
 
   const nL = tones.length;
   const colorIdx = 2;
   const colorPeriod = (md === 'motion' ? 45 : 75) / (0.6 + feel.energy);
 
   tones.forEach((L, li) => {
-    const swellRate = 0.018 + feel.energy * 0.05 + li * 0.004;
+    // Match engine.ts: more distinct swell rates per layer
+    const swellRate = 0.018 + feel.energy * 0.05 + li * 0.007;
     const swellPh = rng() * 6.283;
     let t = rng() * 4 + li * 0.9;
     while (t < duration) {
@@ -90,13 +92,16 @@ function genEventsOffline(p: ImageProfile, feel: Feel, vc: Voicing, md: Mode, du
       const overlap = (md === 'motion' ? 2.2 : 1.7) + feel.energy * 0.7 - feel.serene * 0.5;
       const swell = 0.45 + 0.55 * Math.sin(2 * Math.PI * swellRate * t + swellPh);
       const gain = L.gainMul * (0.35 + 0.75 * swell);
+      // Match engine.ts: pos drifts through source buffer for timbre evolution
       const valid = Math.max(0.1, SRC_DUR - dur * rate - 0.2);
-      const pos = ((t / duration) * valid * 0.7 + rng() * valid * 0.3) % valid;
-      const spread = (li / (Math.max(1, nL - 1))) * 1.4 - 0.7;
-      const pan = (L.air ? (rng() < 0.5 ? -0.7 : 0.7) : spread) + (rng() * 2 - 1) * 0.15;
+      const driftPhase = (t / duration) % 1;
+      const pos = (driftPhase * valid * 0.6 + rng() * valid * 0.4) % valid;
+      // Match engine.ts: wider stereo spread ±0.9, air layers hard pan ±0.85
+      const spread = (li / (Math.max(1, nL - 1))) * 1.8 - 0.9;
+      const pan = (L.air ? (rng() < 0.5 ? -0.85 : 0.85) : spread) + (rng() * 2 - 1) * 0.1;
       evs.push({
         kind: 'grain', t, rate, dur, pos,
-        pan: Math.max(-0.85, Math.min(0.85, pan)), gain, air: L.air,
+        pan: Math.max(-0.95, Math.min(0.95, pan)), gain, air: L.air,
       });
       t += (dur / Math.max(0.5, overlap)) * (0.85 + rng() * 0.3);
     }
@@ -122,7 +127,6 @@ export async function exportWAV(
   onProgress?: (pct: number) => void,
 ): Promise<Blob> {
   const SR = 44100;
-  const frames = SR * durationSecs;
 
   onProgress?.(5);
 
@@ -130,16 +134,26 @@ export async function exportWAV(
 
   onProgress?.(20);
 
+  const light = profile.light;
+  const { space, serene, energy } = feel;
+
   const offlineBuf = await Tone.Offline(({ transport: _transport }) => {
     const ctx = Tone.getContext().rawContext as OfflineAudioContext;
 
+    // Master gain → destination
     const masterGain = ctx.createGain();
     masterGain.gain.value = 0.72;
     masterGain.connect(ctx.destination);
 
-    const reverbDecay = 4.5 + feel.space * 4 + feel.serene * 3;
-    const reverbWet = 0.26 + feel.space * 0.38 + feel.serene * 0.18;
+    // Master HP at 40Hz — clears inaudible sub rumble
+    const masterHP = ctx.createBiquadFilter();
+    masterHP.type = 'highpass';
+    masterHP.frequency.value = 40;
+    masterHP.connect(masterGain);
 
+    // Reverb (synthetic IR)
+    const reverbDecay = 4.5 + space * 4 + serene * 3;
+    const reverbWet = 0.26 + space * 0.38 + serene * 0.18;
     const irLen = Math.floor(SR * reverbDecay);
     const irBuf = ctx.createBuffer(2, irLen, SR);
     const rngIR = mulberry32(profile.seed ^ 0xabcd1234);
@@ -154,14 +168,19 @@ export async function exportWAV(
     const convGain = ctx.createGain();
     convGain.gain.value = reverbWet;
     conv.connect(convGain);
-    convGain.connect(masterGain);
+    convGain.connect(masterHP);
 
+    // Bus LP — match engine.ts: cutoff driven by light + serene
+    const lpFreqBase = 1500 + light * 6000 + serene * 4000;
     const busLP = ctx.createBiquadFilter();
     busLP.type = 'lowpass';
-    busLP.frequency.value = 3000 + (1 - feel.energy) * 2000;
-    busLP.connect(masterGain);
+    busLP.frequency.value = lpFreqBase;
+    busLP.Q.value = 0.5;
+    busLP.connect(masterHP);
     busLP.connect(conv);
 
+    // Drone — match engine.ts: reduced gain, high-passed at 90Hz
+    const droneGain = 0.02 + space * 0.015;
     const droneFreq = mtof(profile.root - 12);
     for (let i = 0; i < 2; i++) {
       const osc = ctx.createOscillator();
@@ -169,9 +188,13 @@ export async function exportWAV(
       osc.frequency.value = droneFreq * (i === 0 ? 0.998 : 1.003);
       const g = ctx.createGain();
       g.gain.setValueAtTime(0, 0);
-      g.gain.linearRampToValueAtTime(0.06 + feel.space * 0.04, 7);
+      g.gain.linearRampToValueAtTime(droneGain, 7);
+      const droneHP = ctx.createBiquadFilter();
+      droneHP.type = 'highpass';
+      droneHP.frequency.value = 90;
       osc.connect(g);
-      g.connect(busLP);
+      g.connect(droneHP);
+      droneHP.connect(busLP);
       osc.start(0);
       osc.stop(durationSecs);
     }
