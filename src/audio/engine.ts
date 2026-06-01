@@ -48,20 +48,22 @@ type ScheduleEvent = GrainEvent | PulseEvent;
 function genEvents(p: ImageProfile, feel: Feel, vc: Voicing, md: Mode, duration: number, seedOffset = 0): ScheduleEvent[] {
   const rng = mulberry32(p.seed + seedOffset + (md === 'motion' ? 2000 : 7000));
   const evs: ScheduleEvent[] = [];
+  // Fix #5: wider stereo spread — air layers pan hard, chord layers spread ±0.9
   const tones: Array<{ iv: number; gainMul: number; air: boolean; idx: number }> = vc.tmpl.map((iv, i) => ({
     iv: iv + vc.reg,
     gainMul: [0.20, 0.17, 0.16, 0.12][i] ?? 0.12,
     air: false,
     idx: i,
   }));
-  tones.push({ iv: vc.airTone, gainMul: 0.09, air: true, idx: tones.length });
+  // Fix #3: boost air layer gain so shimmer is audible
+  tones.push({ iv: vc.airTone, gainMul: 0.18, air: true, idx: tones.length });
 
   const nL = tones.length;
   const colorIdx = 2;
   const colorPeriod = (md === 'motion' ? 45 : 75) / (0.6 + feel.energy);
 
   tones.forEach((L, li) => {
-    const swellRate = 0.018 + feel.energy * 0.05 + li * 0.004;
+    const swellRate = 0.018 + feel.energy * 0.05 + li * 0.007; // Fix #4: distinct rates per layer
     const swellPh = rng() * 6.283;
     let t = rng() * 4 + li * 0.99;
 
@@ -76,17 +78,20 @@ function genEvents(p: ImageProfile, feel: Feel, vc: Voicing, md: Mode, duration:
       const overlap = (md === 'motion' ? 2.2 : 1.7) + feel.energy * 0.7 - feel.serene * 0.5;
       const swell = 0.45 + 0.55 * Math.sin(2 * Math.PI * swellRate * t + swellPh);
       const gain = L.gainMul * (0.35 + 0.75 * swell);
+      // Fix #4: pos drifts slowly through source buffer so timbre evolves over time
       const valid = Math.max(0.1, SRC_DUR - dur * rate - 0.2);
-      const pos = ((t / duration) * valid * 0.7 + rng() * valid * 0.3) % valid;
-      const spread = (li / (Math.max(1, nL - 1))) * 1.4 - 0.7;
-      const pan = (L.air ? (rng() < 0.5 ? -0.7 : 0.7) : spread) + (rng() * 2 - 1) * 0.15;
+      const driftPhase = (t / duration + seedOffset * 0.001) % 1;
+      const pos = (driftPhase * valid * 0.6 + rng() * valid * 0.4) % valid;
+      // Fix #5: spread chord layers ±0.9, air layers hard pan
+      const spread = (li / (Math.max(1, nL - 1))) * 1.8 - 0.9;
+      const pan = (L.air ? (rng() < 0.5 ? -0.85 : 0.85) : spread) + (rng() * 2 - 1) * 0.1;
       evs.push({
         kind: 'grain',
         t,
         rate,
         dur,
         pos,
-        pan: Math.max(-0.85, Math.min(0.85, pan)),
+        pan: Math.max(-0.95, Math.min(0.95, pan)),
         gain,
         air: L.air,
       });
@@ -109,6 +114,7 @@ function genEvents(p: ImageProfile, feel: Feel, vc: Voicing, md: Mode, duration:
 export class TerraSonicEngine {
   private context: Tone.BaseContext | null = null;
   private masterGain: Tone.Gain | null = null;
+  private masterHP: Tone.Filter | null = null;
   private reverb: Tone.Reverb | null = null;
   private delay: Tone.FeedbackDelay | null = null;
   private busLP: Tone.Filter | null = null;
@@ -151,16 +157,21 @@ export class TerraSonicEngine {
     this.cycle = 0;
 
     const { space, serene, energy } = feel;
+    const light = profile.light;
 
     // --- Master gain ---
     this.masterGain = new Tone.Gain(0.72).toDestination();
+
+    // Fix #2: master high-pass at 40Hz to clear inaudible sub rumble
+    this.masterHP = new Tone.Filter({ type: 'highpass', frequency: 40, rolloff: -12 });
+    this.masterHP.connect(this.masterGain);
 
     // --- Reverb ---
     const reverbDecay = 4.5 + space * 4 + serene * 3;
     this.reverb = new Tone.Reverb({ decay: reverbDecay, wet: 0 });
     await this.reverb.generate();
     this.reverb.wet.value = 0.26 + space * 0.38 + serene * 0.18;
-    this.reverb.connect(this.masterGain);
+    this.reverb.connect(this.masterHP);
 
     // --- Delay ---
     this.delay = new Tone.FeedbackDelay({
@@ -168,28 +179,35 @@ export class TerraSonicEngine {
       feedback: 0.3 + space * 0.15,
       wet: 0.16 + space * 0.12,
     });
-    this.delay.connect(this.masterGain);
+    this.delay.connect(this.masterHP);
 
     // --- IR Convolver (optional hall) ---
     this.convolver = new Tone.Convolver();
     try {
       await (this.convolver as Tone.Convolver).load(space > 0.5 ? '/ir/hall.wav' : '/ir/plate.wav');
-      const convMix = new Tone.Gain(space * 0.25);
+      // Keep wet low so dry signal retains highs
+      const convMix = new Tone.Gain(space * 0.18);
       this.convolver.connect(convMix);
-      convMix.connect(this.masterGain);
+      convMix.connect(this.masterHP);
     } catch {
       this.convolver = null;
     }
 
-    // --- Bus lowpass with slow LFO ---
-    const lpFreqBase = 3000 + (1 - energy) * 2000;
-    this.busLP = new Tone.Filter({ type: 'lowpass', frequency: lpFreqBase, rolloff: -12 });
-    this.busLP.connect(this.masterGain);
+    // Fix #1: bus LP cutoff driven by light + serene, much higher than before
+    // bright/serene image → ~10kHz; dark image → ~2.5kHz
+    const lpFreqBase = 1500 + light * 6000 + serene * 4000;
+    this.busLP = new Tone.Filter({ type: 'lowpass', frequency: lpFreqBase, Q: 0.5, rolloff: -12 });
+    this.busLP.connect(this.masterHP);
     if (this.convolver) this.busLP.connect(this.convolver);
     this.busLP.connect(this.reverb);
     this.busLP.connect(this.delay);
 
-    this.busLPLFO = new Tone.LFO({ frequency: 0.04 + energy * 0.03, min: lpFreqBase * 0.7, max: lpFreqBase * 1.2 }).start();
+    // LFO modulates upward from base (not parked at the bottom)
+    this.busLPLFO = new Tone.LFO({
+      frequency: 0.04 + energy * 0.03,
+      min: lpFreqBase,
+      max: lpFreqBase * 1.6,
+    }).start();
     this.busLPLFO.connect(this.busLP.frequency);
 
     // --- Drone bed ---
@@ -207,7 +225,8 @@ export class TerraSonicEngine {
   private async _startDrone() {
     const { root } = this.profile;
     const { energy, space } = this.feel;
-    const droneGain = 0.06 + space * 0.04;
+    // Fix #2: drone gain reduced to one-third (~0.02 base), high-passed at 90Hz
+    const droneGain = 0.02 + space * 0.015;
     const baseFreq = mtof(root - 12);
 
     for (let i = 0; i < 2; i++) {
@@ -216,8 +235,11 @@ export class TerraSonicEngine {
         frequency: baseFreq * (1 + (i === 0 ? -0.002 : 0.003)),
       });
       const g = new Tone.Gain(0);
+      // High-pass each drone oscillator to stop it masking the low-mids
+      const droneHP = new Tone.Filter({ type: 'highpass', frequency: 90, rolloff: -12 });
       osc.connect(g);
-      g.connect(this.busLP!);
+      g.connect(droneHP);
+      droneHP.connect(this.busLP!);
       osc.start();
       g.gain.rampTo(droneGain, 7, Tone.now());
       this.droneOscs.push(osc);
@@ -342,6 +364,7 @@ export class TerraSonicEngine {
 
     if (this.busLPLFO) { try { this.busLPLFO.stop(); this.busLPLFO.dispose(); } catch { /* ignore */ } this.busLPLFO = null; }
     if (this.busLP) { try { this.busLP.dispose(); } catch { /* ignore */ } this.busLP = null; }
+    if (this.masterHP) { try { this.masterHP.dispose(); } catch { /* ignore */ } this.masterHP = null; }
     if (this.reverb) { try { this.reverb.dispose(); } catch { /* ignore */ } this.reverb = null; }
     if (this.delay) { try { this.delay.dispose(); } catch { /* ignore */ } this.delay = null; }
     if (this.convolver) { try { this.convolver.dispose(); } catch { /* ignore */ } this.convolver = null; }

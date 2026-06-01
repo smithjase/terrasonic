@@ -26,8 +26,9 @@ export async function buildSourceBuffer(profile: ImageProfile): Promise<AudioBuf
   const { light, warm, sat, density, contrast, root, seed } = profile;
   const bright = light;
 
-  const N = 4 + Math.round(sat * 8);
-  const slope = 1.8 - sat * 0.95;
+  // Fix #3: more partials, shallower rolloff so highs survive
+  const N = 8 + Math.round(sat * 8);
+  const slope = 1.1 - sat * 0.4;
   const rng = mulberry32(seed ^ 0xdeadbeef);
 
   const offCtx = new OfflineAudioContext(2, frames, sr);
@@ -48,8 +49,8 @@ export async function buildSourceBuffer(profile: ImageProfile): Promise<AudioBuf
     const isEven = p % 2 === 0;
     const partialGain = (isEven ? warm : (1 - warm * 0.5)) / Math.pow(p, slope);
 
-    // High partial lift from brightness
-    const highLift = p > N / 2 ? 1 + bright * 0.4 * ((p - N / 2) / (N / 2)) : 1;
+    // Fix #3: stronger high-partial lift from brightness
+    const highLift = p > N / 2 ? 1 + bright * 1.2 * ((p - N / 2) / (N / 2)) : 1;
     const gain = partialGain * highLift * 0.35;
 
     // Slow LFO per partial
