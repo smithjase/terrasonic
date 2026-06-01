@@ -50,7 +50,7 @@ function startViz() {
     analyserNode.getByteFrequencyData(dataArr);
     ctx.clearRect(0, 0, canvas!.width, canvas!.height);
 
-    const barW = canvas!.width / BA_COUNT;
+    const barW = canvas!.width / BAR_COUNT;
     for (let i = 0; i < BAR_COUNT; i++) {
       const idx = Math.floor(i * bufLen / BAR_COUNT);
       const val = dataArr[idx] / 255;

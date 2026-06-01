@@ -18,7 +18,7 @@ export function deriveFeel(p: ImageProfile): Feel {
   const vEng = p.vEng;
   const vSpc = p.vSpc;
 
-  const valence = vVal !==~ull
+  const valence = vVal !== null
     ? vVal
     : clamp(0.28 + light * 0.5 + (warm - 0.5) * 0.35 + (1 - density) * 0.12);
 

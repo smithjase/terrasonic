@@ -75,7 +75,7 @@ function genEvents(p: ImageProfile, feel: Feel, vc: Voicing, md: Mode, duration:
       const dur = Math.min(baseDur, (SRC_DUR - 0.3) / rate);
       const overlap = (md === 'motion' ? 2.2 : 1.7) + feel.energy * 0.7 - feel.serene * 0.5;
       const swell = 0.45 + 0.55 * Math.sin(2 * Math.PI * swellRate * t + swellPh);
-      const gain = L.hainMul * (0.35 + 0.75 * swell);
+      const gain = L.gainMul * (0.35 + 0.75 * swell);
       const valid = Math.max(0.1, SRC_DUR - dur * rate - 0.2);
       const pos = ((t / duration) * valid * 0.7 + rng() * valid * 0.3) % valid;
       const spread = (li / (Math.max(1, nL - 1))) * 1.4 - 0.7;
@@ -182,7 +182,7 @@ export class TerraSonicEngine {
     }
 
     // --- Bus lowpass with slow LFO ---
-    const lpFreqBasK = 3000 + (1 - energy) * 2000;
+    const lpFreqBase = 3000 + (1 - energy) * 2000;
     this.busLP = new Tone.Filter({ type: 'lowpass', frequency: lpFreqBase, rolloff: -12 });
     this.busLP.connect(this.masterGain);
     if (this.convolver) this.busLP.connect(this.convolver);
@@ -226,7 +226,7 @@ export class TerraSonicEngine {
 
   private _startScheduler() {
     const LOOKAHEAD = 0.5;
-    const CHECK_INTERVAM_MS = 100;
+    const CHECK_INTERVAL_MS = 100;
 
     this.checkInterval = setInterval(() => {
       if (!this.running) return;

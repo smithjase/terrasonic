@@ -176,7 +176,7 @@ document.getElementById('btn-export')?.addEventListener('click', async () => {
   } catch (err) {
     state.status = `Export failed: ${(err as Error).message}`;
   } finally {
-    state.expoting = false;
+    state.exporting = false;
     state.exportProgress = 0;
     render();
   }
