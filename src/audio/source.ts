@@ -1,4 +1,3 @@
-import * as Tone from 'tone';
 import type { ImageProfile } from '../analysis/image.js';
 
 export const SRC_DUR = 12;
