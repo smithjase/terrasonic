@@ -1,6 +1,6 @@
 import * as Tone from 'tone';
 import { analyseImage } from './analysis/image.js';
-import { deriveFeel } from './analysis/feel.js';
+import { deriveFeel, enrichWithVision } from './analysis/feel.js';
 import { pickVoicing } from './music/voicing.js';
 import { buildSourceBuffer } from './audio/source.js';
 import { TerraSonicEngine } from './audio/engine.js';
@@ -58,6 +58,19 @@ function syncQueueState() {
   state.activeQueueIdx = queueIdx;
 }
 
+// --- API key ---
+const apiKeyInput = document.getElementById('api-key-input') as HTMLInputElement | null;
+const apiKeyStatus = document.getElementById('api-key-status');
+if (apiKeyInput) {
+  const saved = sessionStorage.getItem('ts_api_key');
+  if (saved) { apiKeyInput.value = saved; if (apiKeyStatus) apiKeyStatus.textContent = '✓'; }
+  apiKeyInput.addEventListener('input', () => {
+    const val = apiKeyInput.value.trim();
+    sessionStorage.setItem('ts_api_key', val);
+    if (apiKeyStatus) apiKeyStatus.textContent = val ? '✓' : '';
+  });
+}
+
 // --- Drop zone ---
 const dropZone = document.getElementById('drop-zone')!;
 const fileInput = document.getElementById('file-input') as HTMLInputElement;
@@ -109,10 +122,12 @@ async function addToQueue(file: File) {
   render();
 
   try {
-    const { profile } = await analyseImage(file);
-    item.profile = profile;
-    item.feel = deriveFeel(profile);
-    item.voicing = pickVoicing(item.feel, profile);
+    const { profile, base64, mediaType } = await analyseImage(file);
+    const apiKey = sessionStorage.getItem('ts_api_key') ?? '';
+    const enriched = apiKey ? await enrichWithVision(profile, base64, mediaType, apiKey) : profile;
+    item.profile = enriched;
+    item.feel = deriveFeel(enriched);
+    item.voicing = pickVoicing(item.feel, enriched);
     item.sourceBuffer = await buildSourceBuffer(profile);
 
     syncQueueState();
