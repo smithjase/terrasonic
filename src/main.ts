@@ -1,9 +1,8 @@
-import * as Tone from 'tone';
 import { analyseImage } from './analysis/image.js';
 import { deriveFeel, enrichWithVision } from './analysis/feel.js';
 import { pickVoicing } from './music/voicing.js';
 import { buildSourceBuffer } from './audio/source.js';
-import { TerraSonicEngine } from './audio/engine.js';
+import { TerraSonicEngine, getAudioContext } from './audio/engine.js';
 import { exportWAV } from './audio/export.js';
 import { updateUI, crossFadeImage, setAnalyser, type UIState } from './ui/ui.js';
 import type { ImageProfile } from './analysis/image.js';
@@ -267,7 +266,6 @@ document.getElementById('btn-play')?.addEventListener('click', async () => {
   render();
 
   try {
-    await Tone.start();
     const mode = deriveMode(item.feel!);
     await activeEngine.init(item.profile!, item.feel!, item.voicing!, mode, item.sourceBuffer!, 180);
 
@@ -280,8 +278,7 @@ document.getElementById('btn-play')?.addEventListener('click', async () => {
     crossFadeImage(item.url, true);
 
     // Connect analyser for viz
-    const ctx = Tone.getContext().rawContext as AudioContext;
-    const analyser = ctx.createAnalyser();
+    const analyser = getAudioContext().createAnalyser();
     analyser.fftSize = 2048;
     analyser.smoothingTimeConstant = 0.8;
     setAnalyser(analyser);

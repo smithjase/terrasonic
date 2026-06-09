@@ -1,4 +1,3 @@
-import * as Tone from 'tone';
 import type { ImageProfile } from '../analysis/image.js';
 import type { Feel } from '../analysis/feel.js';
 import type { Voicing } from '../music/voicing.js';
@@ -6,6 +5,15 @@ import { buildAudioChain, type AudioChain } from './chain.js';
 import { genEvents, scheduleBell, bellTimbre, type GrainEvent, type PulseEvent, type BellEvent, type ScheduleEvent } from './events.js';
 
 export type Mode = 'stillness' | 'motion';
+
+// Singleton raw AudioContext — same approach as export.ts, no Tone.js involvement
+let sharedCtx: AudioContext | null = null;
+export function getAudioContext(): AudioContext {
+  if (!sharedCtx || sharedCtx.state === 'closed') {
+    sharedCtx = new AudioContext();
+  }
+  return sharedCtx;
+}
 
 function mtof(m: number): number {
   return 440 * Math.pow(2, (m - 69) / 12);
@@ -41,8 +49,8 @@ export class TerraSonicEngine {
   ) {
     if (this.running) await this.stop();
 
-    await Tone.start();
-    this.ctx = Tone.getContext().rawContext as AudioContext;
+    this.ctx = getAudioContext();
+    if (this.ctx.state === 'suspended') await this.ctx.resume();
     this.profile = profile;
     this.feel = feel;
     this.voicing = voicing;
@@ -84,7 +92,7 @@ export class TerraSonicEngine {
 
       const hp = ctx.createBiquadFilter();
       hp.type = 'highpass';
-      hp.frequency.value = 90;
+      hp.frequency.value = 40;
 
       osc.connect(gain);
       gain.connect(hp);

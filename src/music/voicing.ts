@@ -36,6 +36,9 @@ export function pickVoicing(feel: Feel, p: { warm: number }): Voicing {
   else if (key === 'wistful') reg = -5;
   else                      reg = -12;
 
+  // For high-energy images, lift register so grain content isn't all sub-bass
+  if (feel.energy > 0.65 && reg < 0) reg = Math.min(reg + 12, 0);
+
   const v = VOICINGS[key];
   const spread = space > 0.55;
   const airTone = v.tmpl[v.tmpl.length - 1] + reg + (spread ? 24 : 12);

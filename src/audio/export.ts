@@ -68,7 +68,7 @@ export async function exportWAV(
     g.gain.linearRampToValueAtTime(droneGain, 7);
     const hp = offCtx.createBiquadFilter();
     hp.type = 'highpass';
-    hp.frequency.value = 90;
+    hp.frequency.value = 40;
     osc.connect(g);
     g.connect(hp);
     hp.connect(chain.input);
