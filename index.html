@@ -125,8 +125,29 @@
       object-fit: cover;
       opacity: 0;
       transition: opacity 3s ease;
+      pointer-events: none;
     }
     .preview-img.visible { opacity: 1; }
+
+    #add-more-btn {
+      position: absolute;
+      bottom: 0.8rem;
+      right: 0.8rem;
+      z-index: 10;
+      padding: 0.4rem 0.8rem;
+      background: rgba(12, 15, 13, 0.75);
+      border: 1px solid var(--accent2);
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      display: none;
+      transition: background 0.15s;
+    }
+    #add-more-btn:hover { background: rgba(12, 15, 13, 0.95); }
+    #add-more-btn.visible { display: block; }
 
     #file-input { display: none; }
 
@@ -386,6 +407,7 @@
         </div>
         <img id="preview-img-a" class="preview-img" alt="" />
         <img id="preview-img-b" class="preview-img" alt="" />
+        <button id="add-more-btn">+ Add images</button>
       </div>
       <input type="file" id="file-input" accept="image/*" multiple />
 

@@ -76,6 +76,12 @@ fileInput.addEventListener('change', () => {
   fileInput.value = '';
 });
 
+const addMoreBtn = document.getElementById('add-more-btn');
+addMoreBtn?.addEventListener('click', e => {
+  e.stopPropagation(); // don't also trigger drop-zone click
+  fileInput.click();
+});
+
 // Queue remove button delegation
 document.getElementById('queue-strip')?.addEventListener('click', e => {
   const btn = (e.target as Element).closest('.q-remove') as HTMLElement | null;
@@ -95,6 +101,7 @@ async function addToQueue(file: File) {
   // Show first image immediately
   if (queue.length === 1) {
     crossFadeImage(url, true);
+    document.getElementById('add-more-btn')?.classList.add('visible');
     state.status = 'Analysing image…';
   } else {
     state.status = `${queue.length} images queued…`;
