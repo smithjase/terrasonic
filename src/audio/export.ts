@@ -63,14 +63,15 @@ type ScheduleEvent = GrainEvent | PulseEvent;
 function genEventsOffline(p: ImageProfile, feel: Feel, vc: Voicing, md: Mode, duration: number): ScheduleEvent[] {
   const rng = mulberry32(p.seed + (md === 'motion' ? 2000 : 7000));
   const evs: ScheduleEvent[] = [];
+  // Chord layers louder than drone so they dominate the texture
   const tones: Array<{ iv: number; gainMul: number; air: boolean; idx: number }> = vc.tmpl.map((iv, i) => ({
     iv: iv + vc.reg,
-    gainMul: [0.20, 0.17, 0.16, 0.12][i] ?? 0.12,
+    gainMul: [0.30, 0.26, 0.23, 0.19][i] ?? 0.19,
     air: false,
     idx: i,
   }));
-  // Air layer: present but not harsh
-  tones.push({ iv: vc.airTone, gainMul: 0.11, air: true, idx: tones.length });
+  // Air layer: shimmer without harshness
+  tones.push({ iv: vc.airTone, gainMul: 0.13, air: true, idx: tones.length });
 
   const nL = tones.length;
   const colorIdx = 2;
@@ -87,9 +88,10 @@ function genEventsOffline(p: ImageProfile, feel: Feel, vc: Voicing, md: Mode, du
         iv += (Math.floor(t / colorPeriod) % 2 === 1) ? (feel.valence > 0.5 ? 2 : -2) : 0;
       }
       const rate = Math.pow(2, iv / 12);
-      const baseDur = (md === 'motion' ? (2.6 + rng() * 1.8) : (3.6 + rng() * 2.4)) * (1 + feel.serene * 0.6);
+      // Longer grains + higher overlap = smoother, more flowing pad texture
+      const baseDur = (md === 'motion' ? (3.5 + rng() * 2.0) : (5.0 + rng() * 3.0)) * (1 + feel.serene * 0.5);
       const dur = Math.min(baseDur, (SRC_DUR - 0.3) / rate);
-      const overlap = (md === 'motion' ? 2.2 : 1.7) + feel.energy * 0.7 - feel.serene * 0.5;
+      const overlap = (md === 'motion' ? 3.0 : 2.5) + feel.energy * 0.5 - feel.serene * 0.3;
       const swell = 0.45 + 0.55 * Math.sin(2 * Math.PI * swellRate * t + swellPh);
       const gain = L.gainMul * (0.35 + 0.75 * swell);
       // Match engine.ts: pos drifts through source buffer for timbre evolution
@@ -166,7 +168,9 @@ export async function exportWAV(
     const conv = ctx.createConvolver();
     conv.buffer = irBuf;
     const convGain = ctx.createGain();
-    convGain.gain.value = reverbWet;
+    // More reverb for flowing, spacious quality
+    const reverbWetAdj = Math.min(0.85, reverbWet + 0.14);
+    convGain.gain.value = reverbWetAdj;
     conv.connect(convGain);
     convGain.connect(masterHP);
 
@@ -186,8 +190,8 @@ export async function exportWAV(
     hiShelf.connect(masterHP);
     hiShelf.connect(conv);
 
-    // Drone — match engine.ts: reduced gain, high-passed at 90Hz
-    const droneGain = 0.02 + space * 0.015;
+    // Drone is a subtle bed — chord layers should dominate
+    const droneGain = 0.012 + space * 0.008;
     const droneFreq = mtof(profile.root - 12);
     for (let i = 0; i < 2; i++) {
       const osc = ctx.createOscillator();

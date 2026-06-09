@@ -49,14 +49,15 @@ function genEvents(p: ImageProfile, feel: Feel, vc: Voicing, md: Mode, duration:
   const rng = mulberry32(p.seed + seedOffset + (md === 'motion' ? 2000 : 7000));
   const evs: ScheduleEvent[] = [];
   // Fix #5: wider stereo spread — air layers pan hard, chord layers spread ±0.9
+  // Chord layers louder than drone so they dominate the texture
   const tones: Array<{ iv: number; gainMul: number; air: boolean; idx: number }> = vc.tmpl.map((iv, i) => ({
     iv: iv + vc.reg,
-    gainMul: [0.20, 0.17, 0.16, 0.12][i] ?? 0.12,
+    gainMul: [0.30, 0.26, 0.23, 0.19][i] ?? 0.19,
     air: false,
     idx: i,
   }));
-  // Air layer: present but not harsh
-  tones.push({ iv: vc.airTone, gainMul: 0.11, air: true, idx: tones.length });
+  // Air layer: shimmer without harshness
+  tones.push({ iv: vc.airTone, gainMul: 0.13, air: true, idx: tones.length });
 
   const nL = tones.length;
   const colorIdx = 2;
@@ -73,9 +74,10 @@ function genEvents(p: ImageProfile, feel: Feel, vc: Voicing, md: Mode, duration:
         iv += (Math.floor(t / colorPeriod) % 2 === 1) ? (feel.valence > 0.5 ? 2 : -2) : 0;
       }
       const rate = Math.pow(2, iv / 12);
-      const baseDur = (md === 'motion' ? (2.6 + rng() * 1.8) : (3.6 + rng() * 2.4)) * (1 + feel.serene * 0.6);
+      // Longer grains + higher overlap = smoother, more flowing pad texture
+      const baseDur = (md === 'motion' ? (3.5 + rng() * 2.0) : (5.0 + rng() * 3.0)) * (1 + feel.serene * 0.5);
       const dur = Math.min(baseDur, (SRC_DUR - 0.3) / rate);
-      const overlap = (md === 'motion' ? 2.2 : 1.7) + feel.energy * 0.7 - feel.serene * 0.5;
+      const overlap = (md === 'motion' ? 3.0 : 2.5) + feel.energy * 0.5 - feel.serene * 0.3;
       const swell = 0.45 + 0.55 * Math.sin(2 * Math.PI * swellRate * t + swellPh);
       const gain = L.gainMul * (0.35 + 0.75 * swell);
       // Fix #4: pos drifts slowly through source buffer so timbre evolves over time
@@ -170,7 +172,8 @@ export class TerraSonicEngine {
     const reverbDecay = 4.5 + space * 4 + serene * 3;
     this.reverb = new Tone.Reverb({ decay: reverbDecay, wet: 0 });
     await this.reverb.generate();
-    this.reverb.wet.value = 0.26 + space * 0.38 + serene * 0.18;
+    // More reverb for flowing, spacious quality
+    this.reverb.wet.value = 0.40 + space * 0.30 + serene * 0.15;
     this.reverb.connect(this.masterHP);
 
     // --- Delay ---
@@ -228,8 +231,8 @@ export class TerraSonicEngine {
   private async _startDrone() {
     const { root } = this.profile;
     const { energy, space } = this.feel;
-    // Fix #2: drone gain reduced to one-third (~0.02 base), high-passed at 90Hz
-    const droneGain = 0.02 + space * 0.015;
+    // Drone is a subtle bed — chord layers should dominate
+    const droneGain = 0.012 + space * 0.008;
     const baseFreq = mtof(root - 12);
 
     for (let i = 0; i < 2; i++) {

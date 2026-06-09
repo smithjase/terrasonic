@@ -27,7 +27,6 @@ export async function buildSourceBuffer(profile: ImageProfile): Promise<AudioBuf
   const bright = light;
 
   const N = 8 + Math.round(sat * 8);
-  // Gentler rolloff — still brighter than original but not glassy
   const slope = 1.3 - sat * 0.35;
   const rng = mulberry32(seed ^ 0xdeadbeef);
 
@@ -46,22 +45,26 @@ export async function buildSourceBuffer(profile: ImageProfile): Promise<AudioBuf
 
     const isEven = p % 2 === 0;
     const partialGain = (isEven ? warm : (1 - warm * 0.5)) / Math.pow(p, slope);
-
-    // Softer high-partial lift — 0.5 instead of 1.2 to avoid glassy harshness
     const highLift = p > N / 2 ? 1 + bright * 0.5 * ((p - N / 2) / (N / 2)) : 1;
     const gain = partialGain * highLift * 0.35;
 
-    // Slow LFO per partial — smaller amount for smoother, more organic movement
+    // Slow LFO per partial
     const lfoRate = 0.02 + rng() * 0.10;
     const lfoAmt = 0.002 + rng() * 0.004;
     const lfoPhase = rng() * Math.PI * 2;
 
-    // Micro-detuning: each partial gets a tiny random pitch offset (±8 cents)
-    // This breaks up the pure-sine stack and gives an organic, slightly imperfect quality
+    // Micro-detuning ±8 cents — breaks up the glassy sine stack
     const detuneCents = (rng() * 2 - 1) * 8;
     const detuneRatio = Math.pow(2, detuneCents / 1200);
-    const phaseOff = 0.7;
 
+    // Each partial gets an independent slow amplitude arc over the 12s buffer.
+    // This means different read positions genuinely have different spectral content,
+    // so grain position drift actually changes the timbre over time.
+    const arcPhase = rng() * Math.PI * 2;
+    const arcRate = 0.5 + rng() * 1.5; // 0.5–2 full cycles over 12s
+    const arcDepth = 0.35 + rng() * 0.45; // how much the partial fades in/out
+
+    const phaseOff = 0.7;
     const phaseL = rng() * Math.PI * 2;
     const phaseR = phaseL + phaseOff;
     const angFreq = 2 * Math.PI * freq * detuneRatio;
@@ -69,16 +72,18 @@ export async function buildSourceBuffer(profile: ImageProfile): Promise<AudioBuf
     for (let i = 0; i < frames; i++) {
       const t = i / sr;
       const lfo = 1 + lfoAmt * Math.sin(2 * Math.PI * lfoRate * t + lfoPhase);
-      dL[i] += gain * lfo * Math.sin(angFreq * t + phaseL);
-      dR[i] += gain * lfo * Math.sin(angFreq * t + phaseR);
+      // Amplitude arc: each partial breathes in and out independently
+      const arc = 1 - arcDepth * (0.5 - 0.5 * Math.cos(2 * Math.PI * arcRate * t / SRC_DUR + arcPhase));
+      const s = gain * lfo * arc * Math.sin(angFreq * t);
+      dL[i] += s * Math.cos(phaseL) + gain * lfo * arc * (Math.sin(angFreq * t + phaseL) - Math.sin(angFreq * t));
+      dR[i] += s * Math.cos(phaseR) + gain * lfo * arc * (Math.sin(angFreq * t + phaseR) - Math.sin(angFreq * t));
     }
   }
 
-  // Pink-tinted noise: accumulate a running average to low-pass the white noise,
-  // giving it a softer, breathy quality rather than harsh white hiss
-  const noiseFloor = 0.015 + bright * sat * 0.04;
+  // Pink-tinted noise: smoother and softer than white noise
+  const noiseFloor = 0.012 + bright * sat * 0.03;
   let runL = 0, runR = 0;
-  const smoothing = 0.92;
+  const smoothing = 0.94;
   for (let i = 0; i < frames; i++) {
     runL = runL * smoothing + (rng() * 2 - 1) * (1 - smoothing);
     runR = runR * smoothing + (rng() * 2 - 1) * (1 - smoothing);
@@ -86,7 +91,7 @@ export async function buildSourceBuffer(profile: ImageProfile): Promise<AudioBuf
     dR[i] += runR * noiseFloor;
   }
 
-  // Apply HANN envelope (fade in/out over 2s)
+  // Apply HANN envelope (2s fade in/out)
   const envLen = Math.min(frames, sr * 2);
   for (let i = 0; i < envLen; i++) {
     const idx = Math.floor(i / envLen * 256);
