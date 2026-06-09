@@ -49,7 +49,7 @@ function mulberry32(a: number): () => number {
 // Gives the music a sense of journey rather than static texture.
 function buildArc(t: number, duration: number): number {
   const p = t / duration;
-  if (p < 0.18) return 0.25 + (p / 0.18) * 0.75;  // rises 0.25 → 1.0
+  if (p < 0.18) return 0.55 + (p / 0.18) * 0.45;  // rises 0.55 → 1.0
   if (p < 0.65) return 1.0;                          // full
   return 1.0 - ((p - 0.65) / 0.35) * 0.4;           // fades 1.0 → 0.6
 }

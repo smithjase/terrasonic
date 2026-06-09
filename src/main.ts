@@ -270,7 +270,7 @@ document.getElementById('btn-play')?.addEventListener('click', async () => {
     await Tone.start();
     const mode = deriveMode(item.feel!);
     await activeEngine.init(item.profile!, item.feel!, item.voicing!, mode, item.sourceBuffer!, 180);
-    activeEngine.fadeIn(3);
+    activeEngine.fadeIn(0.1); // near-instant on first play; cross-fades use 10s
 
     queueIdx = firstReady;
     state.profile = item.profile;
