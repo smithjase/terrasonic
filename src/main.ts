@@ -62,11 +62,11 @@ function syncQueueState() {
 const apiKeyInput = document.getElementById('api-key-input') as HTMLInputElement | null;
 const apiKeyStatus = document.getElementById('api-key-status');
 if (apiKeyInput) {
-  const saved = sessionStorage.getItem('ts_api_key');
+  const saved = localStorage.getItem('ts_api_key');
   if (saved) { apiKeyInput.value = saved; if (apiKeyStatus) apiKeyStatus.textContent = '✓'; }
   apiKeyInput.addEventListener('input', () => {
     const val = apiKeyInput.value.trim();
-    sessionStorage.setItem('ts_api_key', val);
+    localStorage.setItem('ts_api_key', val);
     if (apiKeyStatus) apiKeyStatus.textContent = val ? '✓' : '';
   });
 }
@@ -123,7 +123,7 @@ async function addToQueue(file: File) {
 
   try {
     const { profile, base64, mediaType } = await analyseImage(file);
-    const apiKey = sessionStorage.getItem('ts_api_key') ?? '';
+    const apiKey = localStorage.getItem('ts_api_key') ?? '';
     const enriched = apiKey ? await enrichWithVision(profile, base64, mediaType, apiKey) : profile;
     item.profile = enriched;
     item.feel = deriveFeel(enriched);
