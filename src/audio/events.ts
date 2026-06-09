@@ -4,6 +4,98 @@ import type { Voicing } from '../music/voicing.js';
 import type { Mode } from './engine.js';
 import { SRC_DUR } from './source.js';
 
+export interface BellTimbre {
+  // Harmonic ratios (1 = fundamental). Inharmonic ratios = metallic/bell, integer = warm/mellow.
+  harmonics: number[];
+  // Relative gain per harmonic
+  hGains: number[];
+  // Attack time in seconds
+  attack: number;
+  // How quickly upper harmonics decay relative to fundamental (0–1; lower = faster upper decay)
+  decayFalloff: number;
+}
+
+// Derive melodic instrument timbre from feel — changes the character of the melodic layer
+// so it suits the image's emotional content rather than always sounding like a piano.
+export function bellTimbre(feel: Feel): BellTimbre {
+  const { energy, valence, space, serene } = feel;
+
+  if (energy > 0.7 && valence < 0.4) {
+    // Violent / dark / intense — struck metal bar, sharp attack, fast metallic decay
+    return {
+      harmonics: [1, 2.76, 5.40, 8.93],
+      hGains:    [1.0, 0.55, 0.25, 0.10],
+      attack: 0.003,
+      decayFalloff: 0.22,
+    };
+  }
+
+  if (energy > 0.6) {
+    // Energetic but not dark — bright marimba-like, punchy with warm resonance
+    return {
+      harmonics: [1, 2.0, 3.0, 4.1],
+      hGains:    [1.0, 0.45, 0.20, 0.08],
+      attack: 0.005,
+      decayFalloff: 0.30,
+    };
+  }
+
+  if (space > 0.65 && serene > 0.5) {
+    // Vast / serene — singing bowl, very slow attack, long sustain, near-integer harmonics
+    return {
+      harmonics: [1, 2.0, 2.98, 4.00],
+      hGains:    [1.0, 0.50, 0.28, 0.12],
+      attack: 0.06,
+      decayFalloff: 0.55,
+    };
+  }
+
+  if (valence < 0.35) {
+    // Dark / melancholic — muted, pad-like tone, slow attack, minimal upper harmonics
+    return {
+      harmonics: [1, 1.98, 2.97],
+      hGains:    [1.0, 0.30, 0.08],
+      attack: 0.04,
+      decayFalloff: 0.50,
+    };
+  }
+
+  // Default — warm piano/bell, the original timbre
+  return {
+    harmonics: [1, 2.756, 5.404],
+    hGains:    [1.0, 0.35, 0.12],
+    attack: 0.008,
+    decayFalloff: 0.35,
+  };
+}
+
+// Schedule a bell note into any AudioContext (live or offline).
+export function scheduleBell(
+  ctx: BaseAudioContext,
+  ev: BellEvent,
+  timbre: BellTimbre,
+  destination: AudioNode,
+  t: number,       // absolute schedule time
+) {
+  const baseFreq = 440 * Math.pow(2, (ev.midi - 69) / 12);
+  timbre.harmonics.forEach((ratio, h) => {
+    const osc = ctx.createOscillator();
+    osc.frequency.value = baseFreq * ratio;
+    const g = ctx.createGain();
+    const decayTime = ev.dur * Math.pow(timbre.decayFalloff, h);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(ev.gain * timbre.hGains[h], t + timbre.attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + decayTime);
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = ev.pan;
+    osc.connect(g);
+    g.connect(panner);
+    panner.connect(destination);
+    osc.start(t);
+    osc.stop(t + decayTime + 0.1);
+  });
+}
+
 export interface GrainEvent {
   kind: 'grain';
   t: number;

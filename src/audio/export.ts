@@ -4,7 +4,7 @@ import type { Voicing } from '../music/voicing.js';
 import type { Mode } from './engine.js';
 import { buildSourceBuffer } from './source.js';
 import { buildAudioChain } from './chain.js';
-import { genEvents } from './events.js';
+import { genEvents, scheduleBell, bellTimbre } from './events.js';
 
 function mtof(m: number): number {
   return 440 * Math.pow(2, (m - 69) / 12);
@@ -115,25 +115,7 @@ export async function exportWAV(
       osc.stop(ev.t + 1.3);
 
     } else if (ev.kind === 'bell') {
-      const baseFreq = mtof(ev.midi);
-      const harmonics = [1, 2.756, 5.404];
-      const hGains = [1.0, 0.35, 0.12];
-      harmonics.forEach((ratio, h) => {
-        const osc = offCtx.createOscillator();
-        osc.frequency.value = baseFreq * ratio;
-        const g = offCtx.createGain();
-        const decayTime = ev.dur * Math.pow(0.35, h);
-        g.gain.setValueAtTime(0, ev.t);
-        g.gain.linearRampToValueAtTime(ev.gain * hGains[h], ev.t + 0.008);
-        g.gain.exponentialRampToValueAtTime(0.0001, ev.t + decayTime);
-        const panner = offCtx.createStereoPanner();
-        panner.pan.value = ev.pan;
-        osc.connect(g);
-        g.connect(panner);
-        panner.connect(chain.input);
-        osc.start(ev.t);
-        osc.stop(ev.t + decayTime + 0.1);
-      });
+      scheduleBell(offCtx, ev, bellTimbre(feel), chain.input, ev.t);
     }
   }
 
