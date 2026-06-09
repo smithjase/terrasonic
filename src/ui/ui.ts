@@ -1,17 +1,17 @@
 import type { ImageProfile } from '../analysis/image.js';
 import type { Feel } from '../analysis/feel.js';
 import type { Voicing } from '../music/voicing.js';
-import type { Mode } from '../audio/engine.js';
 
 export interface UIState {
   status: string;
   profile: ImageProfile | null;
   feel: Feel | null;
   voicing: Voicing | null;
-  mode: Mode;
   playing: boolean;
   exporting: boolean;
   exportProgress: number;
+  queueItems: Array<{ url: string; ready: boolean }>;
+  activeQueueIdx: number;
 }
 
 let analyserNode: AnalyserNode | null = null;
@@ -146,14 +146,50 @@ export function updateUI(state: UIState) {
       : 'Export WAV';
   }
 
+  // Queue strip
+  const strip = document.getElementById('queue-strip');
+  if (strip) {
+    strip.innerHTML = state.queueItems.map((item, i) => `
+      <div class="queue-thumb ${i === state.activeQueueIdx ? 'active' : ''} ${item.ready ? '' : 'loading'}" data-idx="${i}">
+        <img src="${item.url}" />
+        <button class="q-remove" data-idx="${i}" title="Remove">×</button>
+      </div>
+    `).join('');
+  }
 }
 
-export function showImagePreview(file: File) {
-  const img = document.getElementById('preview-img') as HTMLImageElement | null;
+// Cross-fade image support
+let activeImgSlot: 'a' | 'b' = 'a';
+
+export function crossFadeImage(url: string, isFirst: boolean) {
+  const imgA = document.getElementById('preview-img-a') as HTMLImageElement | null;
+  const imgB = document.getElementById('preview-img-b') as HTMLImageElement | null;
   const placeholder = document.getElementById('drop-placeholder');
-  if (!img) return;
-  const url = URL.createObjectURL(file);
-  img.src = url;
-  img.style.display = 'block';
+
+  if (!imgA || !imgB) return;
+
+  if (isFirst) {
+    // Show immediately without fade
+    imgA.src = url;
+    imgA.classList.add('visible');
+    imgB.classList.remove('visible');
+    activeImgSlot = 'a';
+    if (placeholder) placeholder.style.display = 'none';
+    return;
+  }
+
+  // Cross-fade: load into the inactive slot, then swap
+  if (activeImgSlot === 'a') {
+    imgB.src = url;
+    imgB.classList.add('visible');
+    imgA.classList.remove('visible');
+    activeImgSlot = 'b';
+  } else {
+    imgA.src = url;
+    imgA.classList.add('visible');
+    imgB.classList.remove('visible');
+    activeImgSlot = 'a';
+  }
+
   if (placeholder) placeholder.style.display = 'none';
 }

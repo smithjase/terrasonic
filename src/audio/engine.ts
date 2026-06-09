@@ -52,6 +52,7 @@ export class TerraSonicEngine {
 
     // Build signal chain — identical raw Web Audio graph as used by export
     this.chain = buildAudioChain(this.ctx, profile, feel, durationSecs);
+    this.chain.setMasterGain(0, 0);
 
     // Drone bed
     this._startDrone();
@@ -223,6 +224,14 @@ export class TerraSonicEngine {
 
     this.chain?.dispose();
     this.chain = null;
+  }
+
+  fadeIn(secs: number) {
+    this.chain?.setMasterGain(0.72, secs);
+  }
+
+  fadeOut(secs: number) {
+    this.chain?.setMasterGain(0, secs);
   }
 
   isRunning() { return this.running; }

@@ -39,6 +39,7 @@ function buildReverbIR(ctx: BaseAudioContext, decay: number, seed: number): Audi
 export interface AudioChain {
   // Connect all audio sources (grains, pulses, drone) to this node
   input: AudioNode;
+  setMasterGain(value: number, rampSecs: number): void;
   // Call on teardown to stop all internal nodes
   dispose: () => void;
 }
@@ -119,6 +120,16 @@ export function buildAudioChain(
 
   return {
     input: busLP,
+    setMasterGain: (value: number, rampSecs: number) => {
+      const g = masterGain.gain;
+      g.cancelScheduledValues(ctx.currentTime);
+      g.setValueAtTime(g.value, ctx.currentTime);
+      if (rampSecs <= 0) {
+        g.setValueAtTime(value, ctx.currentTime);
+      } else {
+        g.linearRampToValueAtTime(value, ctx.currentTime + rampSecs);
+      }
+    },
     dispose: () => {
       try { masterGain.disconnect(); masterHP.disconnect(); conv.disconnect();
         convGain.disconnect(); delayNode.disconnect(); delayFeedback.disconnect();

@@ -3,36 +3,60 @@ import { analyseImage } from './analysis/image.js';
 import { deriveFeel } from './analysis/feel.js';
 import { pickVoicing } from './music/voicing.js';
 import { buildSourceBuffer } from './audio/source.js';
-import { TerraSonicEngine, type Mode } from './audio/engine.js';
+import { TerraSonicEngine } from './audio/engine.js';
 import { exportWAV } from './audio/export.js';
-import { updateUI, showImagePreview, setAnalyser, type UIState } from './ui/ui.js';
+import { updateUI, crossFadeImage, setAnalyser, type UIState } from './ui/ui.js';
 import type { ImageProfile } from './analysis/image.js';
 import type { Feel } from './analysis/feel.js';
 import type { Voicing } from './music/voicing.js';
 
-const engine = new TerraSonicEngine();
+interface QueueItem {
+  file: File;
+  url: string;
+  profile: ImageProfile | null;
+  feel: Feel | null;
+  voicing: Voicing | null;
+  sourceBuffer: AudioBuffer | null;
+}
+
+const CYCLE_MS = 3 * 60 * 1000;
+const CROSSFADE_SECS = 10;
+
+const engineA = new TerraSonicEngine();
+const engineB = new TerraSonicEngine();
+let activeEngine = engineA;
+let nextEngine = engineB;
+
+const queue: QueueItem[] = [];
+let queueIdx = -1;
+let cycleTimer: ReturnType<typeof setTimeout> | null = null;
+let countdownInterval: ReturnType<typeof setInterval> | null = null;
+let cycleStartTime = 0;
+let transitioning = false;
 
 const state: UIState = {
-  status: 'Drop a nature photograph to begin.',
+  status: 'Drop nature photographs to begin.',
   profile: null,
   feel: null,
   voicing: null,
-  mode: 'stillness',
   playing: false,
   exporting: false,
   exportProgress: 0,
+  queueItems: [],
+  activeQueueIdx: -1,
 };
 
-let currentProfile: ImageProfile | null = null;
-let currentFeel: Feel | null = null;
-let currentVoicing: Voicing | null = null;
-let currentSourceBuffer: AudioBuffer | null = null;
+function render() { updateUI(state); }
+render();
 
-function render() {
-  updateUI(state);
+function deriveMode(feel: Feel) {
+  return feel.energy > 0.6 ? 'motion' as const : 'stillness' as const;
 }
 
-render();
+function syncQueueState() {
+  state.queueItems = queue.map(it => ({ url: it.url, ready: it.sourceBuffer !== null }));
+  state.activeQueueIdx = queueIdx;
+}
 
 // --- Drop zone ---
 const dropZone = document.getElementById('drop-zone')!;
@@ -43,81 +67,209 @@ dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-ove
 dropZone.addEventListener('drop', e => {
   e.preventDefault();
   dropZone.classList.remove('drag-over');
-  const file = e.dataTransfer?.files[0];
-  if (file && file.type.startsWith('image/')) handleFile(file);
+  const files = Array.from(e.dataTransfer?.files ?? []).filter(f => f.type.startsWith('image/'));
+  files.forEach(addToQueue);
 });
 dropZone.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', () => {
-  const file = fileInput.files?.[0];
-  if (file) handleFile(file);
+  Array.from(fileInput.files ?? []).forEach(addToQueue);
+  fileInput.value = '';
 });
 
-async function handleFile(file: File) {
-  state.status = 'Analysing image…';
-  state.profile = null;
-  state.feel = null;
-  state.voicing = null;
-  render();
-
-  if (state.playing) {
-    await engine.stop();
-    state.playing = false;
-    setAnalyser(null);
+// Queue remove button delegation
+document.getElementById('queue-strip')?.addEventListener('click', e => {
+  const btn = (e.target as Element).closest('.q-remove') as HTMLElement | null;
+  if (btn) {
+    e.stopPropagation();
+    const idx = parseInt(btn.dataset.idx ?? '-1', 10);
+    removeFromQueue(idx);
   }
+});
 
-  showImagePreview(file);
+async function addToQueue(file: File) {
+  const url = URL.createObjectURL(file);
+  const item: QueueItem = { file, url, profile: null, feel: null, voicing: null, sourceBuffer: null };
+  queue.push(item);
+  syncQueueState();
+
+  // Show first image immediately
+  if (queue.length === 1) {
+    crossFadeImage(url, true);
+    state.status = 'Analysing image…';
+  } else {
+    state.status = `${queue.length} images queued…`;
+  }
+  render();
 
   try {
     const { profile } = await analyseImage(file);
-    currentProfile = profile;
+    item.profile = profile;
+    item.feel = deriveFeel(profile);
+    item.voicing = pickVoicing(item.feel, profile);
+    item.sourceBuffer = await buildSourceBuffer(profile);
 
-    const feel = deriveFeel(profile);
-    currentFeel = feel;
-    currentVoicing = pickVoicing(feel, profile);
-
-    state.profile = profile;
-    state.feel = feel;
-    state.voicing = currentVoicing;
-    state.status = 'Image analysed. Ready to play.';
-    render();
-
-    // Pre-build source buffer in background
-    state.status = 'Building source tones…';
-    render();
-    currentSourceBuffer = await buildSourceBuffer(profile);
-    state.status = 'Ready. Press Generate & Play.';
+    syncQueueState();
+    if (!state.playing && queue.filter(i => i.sourceBuffer).length === 1) {
+      // First image ready — update profile display and enable play
+      state.profile = item.profile;
+      state.feel = item.feel;
+      state.voicing = item.voicing;
+      state.status = 'Ready. Press Generate & Play.';
+    } else if (state.playing) {
+      state.status = `Playing ${queueIdx + 1} of ${queue.length}`;
+    } else {
+      state.status = `${queue.filter(i => i.sourceBuffer).length} of ${queue.length} images ready.`;
+    }
     render();
   } catch (err) {
-    state.status = `Error: ${(err as Error).message}`;
+    state.status = `Error analysing image: ${(err as Error).message}`;
     render();
   }
 }
 
+function removeFromQueue(idx: number) {
+  if (idx < 0 || idx >= queue.length) return;
+  const item = queue[idx];
+  URL.revokeObjectURL(item.url);
+  queue.splice(idx, 1);
+
+  if (queue.length === 0) {
+    // Stop everything
+    stopAll();
+    return;
+  }
+
+  // Adjust queueIdx
+  if (idx < queueIdx) {
+    queueIdx--;
+  } else if (idx === queueIdx && state.playing) {
+    // Currently playing item removed — transition immediately
+    queueIdx = Math.min(queueIdx, queue.length - 1);
+    if (queue.length > 0) {
+      clearCycleTimers();
+      transitionTo(queueIdx);
+    }
+  }
+
+  syncQueueState();
+  render();
+}
+
+function clearCycleTimers() {
+  if (cycleTimer) { clearTimeout(cycleTimer); cycleTimer = null; }
+  if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+}
+
+function scheduleNextCycle() {
+  clearCycleTimers();
+  if (queue.length <= 1) return; // no cycling needed
+
+  cycleStartTime = Date.now();
+  countdownInterval = setInterval(() => {
+    if (!state.playing) return;
+    const remaining = Math.max(0, CYCLE_MS - (Date.now() - cycleStartTime));
+    const mins = Math.floor(remaining / 60000);
+    const secs = Math.floor((remaining % 60000) / 1000);
+    const current = queue[queueIdx];
+    const desc = current?.profile?.desc ? `"${current.profile.desc}"` : `Image ${queueIdx + 1} of ${queue.length}`;
+    state.status = `Playing ${desc} · Next in ${mins}:${String(secs).padStart(2, '0')}`;
+    render();
+  }, 1000);
+
+  cycleTimer = setTimeout(() => {
+    const nextIdx = (queueIdx + 1) % queue.length;
+    transitionTo(nextIdx);
+  }, CYCLE_MS);
+}
+
+async function transitionTo(nextIdx: number) {
+  if (transitioning) return;
+  const item = queue[nextIdx];
+  if (!item?.sourceBuffer || !item.profile || !item.feel || !item.voicing) {
+    // Not ready — wait 5s and retry
+    cycleTimer = setTimeout(() => transitionTo(nextIdx), 5000);
+    return;
+  }
+
+  transitioning = true;
+  clearCycleTimers();
+
+  const mode = deriveMode(item.feel);
+  await nextEngine.init(item.profile, item.feel, item.voicing, mode, item.sourceBuffer, 180);
+  nextEngine.fadeIn(CROSSFADE_SECS);
+  activeEngine.fadeOut(CROSSFADE_SECS);
+
+  // Visual cross-fade
+  crossFadeImage(item.url, false);
+
+  queueIdx = nextIdx;
+  state.profile = item.profile;
+  state.feel = item.feel;
+  state.voicing = item.voicing;
+  syncQueueState();
+  render();
+
+  setTimeout(async () => {
+    const old = activeEngine;
+    activeEngine = nextEngine;
+    nextEngine = old;
+    await old.stop();
+    transitioning = false;
+    scheduleNextCycle();
+  }, CROSSFADE_SECS * 1000);
+}
+
+async function stopAll() {
+  clearCycleTimers();
+  transitioning = false;
+  await Promise.all([engineA.stop(), engineB.stop()]);
+  state.playing = false;
+  state.profile = null;
+  state.feel = null;
+  state.voicing = null;
+  state.status = queue.length > 0 ? 'Stopped. Press Generate & Play to restart.' : 'Drop nature photographs to begin.';
+  setAnalyser(null);
+  syncQueueState();
+  render();
+}
+
 // --- Play ---
 document.getElementById('btn-play')?.addEventListener('click', async () => {
-  if (!currentProfile || !currentFeel || !currentVoicing || !currentSourceBuffer) return;
+  // Find first ready item
+  const firstReady = queue.findIndex(i => i.sourceBuffer !== null);
+  if (firstReady === -1) return;
+
+  const item = queue[firstReady];
   state.status = 'Starting engine…';
   state.playing = true;
   render();
 
   try {
     await Tone.start();
-    const durationSecs = 180; // 3-minute cycle
-    await engine.init(currentProfile, currentFeel, currentVoicing, state.mode, currentSourceBuffer, durationSecs);
+    const mode = deriveMode(item.feel!);
+    await activeEngine.init(item.profile!, item.feel!, item.voicing!, mode, item.sourceBuffer!, 180);
+    activeEngine.fadeIn(3);
+
+    queueIdx = firstReady;
+    state.profile = item.profile;
+    state.feel = item.feel;
+    state.voicing = item.voicing;
+    syncQueueState();
+
+    crossFadeImage(item.url, true);
 
     // Connect analyser for viz
     const ctx = Tone.getContext().rawContext as AudioContext;
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
     analyser.smoothingTimeConstant = 0.8;
-    // Tap into destination
-    ctx.destination.addEventListener('connect' as never, () => {});
     setAnalyser(analyser);
 
-    state.status = currentProfile.desc
-      ? `Playing: "${currentProfile.desc}"`
-      : 'Playing…';
+    const desc = item.profile!.desc ? `"${item.profile!.desc}"` : `Image ${firstReady + 1} of ${queue.length}`;
+    state.status = queue.length > 1 ? `Playing ${desc}` : `Playing: ${desc}`;
     render();
+
+    scheduleNextCycle();
   } catch (err) {
     state.status = `Engine error: ${(err as Error).message}`;
     state.playing = false;
@@ -126,17 +278,15 @@ document.getElementById('btn-play')?.addEventListener('click', async () => {
 });
 
 // --- Stop ---
-document.getElementById('btn-stop')?.addEventListener('click', async () => {
-  await engine.stop();
-  state.playing = false;
-  setAnalyser(null);
-  state.status = 'Stopped.';
-  render();
-});
+document.getElementById('btn-stop')?.addEventListener('click', stopAll);
 
 // --- Export ---
 document.getElementById('btn-export')?.addEventListener('click', async () => {
-  if (!currentProfile || !currentFeel || !currentVoicing) return;
+  const activeIdx = queueIdx >= 0 ? queueIdx : queue.findIndex(i => i.sourceBuffer !== null);
+  if (activeIdx === -1) return;
+  const item = queue[activeIdx];
+  if (!item.profile || !item.feel || !item.voicing) return;
+
   const durSelect = document.getElementById('export-dur') as HTMLSelectElement;
   const durationSecs = parseInt(durSelect?.value ?? '60', 10);
 
@@ -146,8 +296,9 @@ document.getElementById('btn-export')?.addEventListener('click', async () => {
   render();
 
   try {
+    const mode = deriveMode(item.feel);
     const blob = await exportWAV(
-      currentProfile, currentFeel, currentVoicing, state.mode, durationSecs,
+      item.profile, item.feel, item.voicing, mode, durationSecs,
       pct => {
         state.exportProgress = pct;
         state.status = `Rendering… ${pct}%`;
@@ -161,7 +312,6 @@ document.getElementById('btn-export')?.addEventListener('click', async () => {
     a.download = `terrasonic-${Date.now()}.wav`;
     a.click();
     URL.revokeObjectURL(url);
-   
     state.status = 'Export complete.';
   } catch (err) {
     state.status = `Export failed: ${(err as Error).message}`;
