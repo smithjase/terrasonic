@@ -217,7 +217,7 @@ async function transitionTo(nextIdx: number) {
   clearCycleTimers();
 
   const mode = deriveMode(item.feel);
-  await nextEngine.init(item.profile, item.feel, item.voicing, mode, item.sourceBuffer, 180);
+  await nextEngine.init(item.profile, item.feel, item.voicing, mode, item.sourceBuffer, 180, true);
   nextEngine.fadeIn(CROSSFADE_SECS);
   activeEngine.fadeOut(CROSSFADE_SECS);
 
@@ -270,7 +270,6 @@ document.getElementById('btn-play')?.addEventListener('click', async () => {
     await Tone.start();
     const mode = deriveMode(item.feel!);
     await activeEngine.init(item.profile!, item.feel!, item.voicing!, mode, item.sourceBuffer!, 180);
-    activeEngine.fadeIn(0.1); // near-instant on first play; cross-fades use 10s
 
     queueIdx = firstReady;
     state.profile = item.profile;

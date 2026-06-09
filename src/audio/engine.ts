@@ -37,6 +37,7 @@ export class TerraSonicEngine {
     mode: Mode,
     sourceBuffer: AudioBuffer,
     durationSecs = 180,
+    startSilent = false,
   ) {
     if (this.running) await this.stop();
 
@@ -52,7 +53,7 @@ export class TerraSonicEngine {
 
     // Build signal chain — identical raw Web Audio graph as used by export
     this.chain = buildAudioChain(this.ctx, profile, feel, durationSecs);
-    this.chain.setMasterGain(0, 0);
+    if (startSilent) this.chain.setMasterGain(0, 0);
 
     // Drone bed
     this._startDrone();
