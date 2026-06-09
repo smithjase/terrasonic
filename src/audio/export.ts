@@ -69,8 +69,8 @@ function genEventsOffline(p: ImageProfile, feel: Feel, vc: Voicing, md: Mode, du
     air: false,
     idx: i,
   }));
-  // Match engine.ts: air layer gain 0.18
-  tones.push({ iv: vc.airTone, gainMul: 0.18, air: true, idx: tones.length });
+  // Air layer: present but not harsh
+  tones.push({ iv: vc.airTone, gainMul: 0.11, air: true, idx: tones.length });
 
   const nL = tones.length;
   const colorIdx = 2;
@@ -170,14 +170,21 @@ export async function exportWAV(
     conv.connect(convGain);
     convGain.connect(masterHP);
 
-    // Bus LP — match engine.ts: cutoff driven by light + serene
-    const lpFreqBase = 1500 + light * 6000 + serene * 4000;
+    // Bus LP — capped at 7kHz, matches engine.ts
+    const lpFreqBase = Math.min(7000, 1500 + light * 5000 + serene * 3000);
     const busLP = ctx.createBiquadFilter();
     busLP.type = 'lowpass';
     busLP.frequency.value = lpFreqBase;
     busLP.Q.value = 0.5;
-    busLP.connect(masterHP);
-    busLP.connect(conv);
+
+    // High-shelf cut at 5kHz (−4dB) — softens electronic edge
+    const hiShelf = ctx.createBiquadFilter();
+    hiShelf.type = 'highshelf';
+    hiShelf.frequency.value = 5000;
+    hiShelf.gain.value = -4;
+    busLP.connect(hiShelf);
+    hiShelf.connect(masterHP);
+    hiShelf.connect(conv);
 
     // Drone — match engine.ts: reduced gain, high-passed at 90Hz
     const droneGain = 0.02 + space * 0.015;
@@ -194,7 +201,7 @@ export async function exportWAV(
       droneHP.frequency.value = 90;
       osc.connect(g);
       g.connect(droneHP);
-      droneHP.connect(busLP);
+      droneHP.connect(busLP);  // drone → HP → LP → hiShelf → master
       osc.start(0);
       osc.stop(durationSecs);
     }
@@ -207,14 +214,15 @@ export async function exportWAV(
         src.buffer = srcBuf;
         src.playbackRate.value = ev.rate;
         const g = ctx.createGain();
+        // Softer crossfade matching engine.ts
         g.gain.setValueAtTime(0, ev.t);
-        g.gain.linearRampToValueAtTime(ev.gain, ev.t + ev.dur * 0.3);
+        g.gain.linearRampToValueAtTime(ev.gain, ev.t + ev.dur * 0.45);
         g.gain.linearRampToValueAtTime(0, ev.t + ev.dur);
         const panner = ctx.createStereoPanner();
         panner.pan.value = ev.pan;
         src.connect(g);
         g.connect(panner);
-        panner.connect(busLP);
+        panner.connect(busLP);  // grains → LP → hiShelf → master
         const offset = Math.max(0, Math.min(ev.pos, srcBuf.duration - 0.01));
         src.start(ev.t, offset, ev.dur + 0.05);
       } else if (ev.kind === 'pulse') {
@@ -226,7 +234,7 @@ export async function exportWAV(
         g.gain.linearRampToValueAtTime(ev.gain, ev.t + 0.08);
         g.gain.exponentialRampToValueAtTime(0.001, ev.t + 1.2);
         osc.connect(g);
-        g.connect(busLP);
+        g.connect(busLP);  // pulse → LP → hiShelf → master
         osc.start(ev.t);
         osc.stop(ev.t + 1.3);
       }

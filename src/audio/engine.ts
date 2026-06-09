@@ -55,8 +55,8 @@ function genEvents(p: ImageProfile, feel: Feel, vc: Voicing, md: Mode, duration:
     air: false,
     idx: i,
   }));
-  // Fix #3: boost air layer gain so shimmer is audible
-  tones.push({ iv: vc.airTone, gainMul: 0.18, air: true, idx: tones.length });
+  // Air layer: present but not harsh
+  tones.push({ iv: vc.airTone, gainMul: 0.11, air: true, idx: tones.length });
 
   const nL = tones.length;
   const colorIdx = 2;
@@ -193,20 +193,23 @@ export class TerraSonicEngine {
       this.convolver = null;
     }
 
-    // Fix #1: bus LP cutoff driven by light + serene, much higher than before
-    // bright/serene image → ~10kHz; dark image → ~2.5kHz
-    const lpFreqBase = 1500 + light * 6000 + serene * 4000;
+    // Bus LP: capped at 7kHz to avoid electronic harshness on bright images
+    const lpFreqBase = Math.min(7000, 1500 + light * 5000 + serene * 3000);
     this.busLP = new Tone.Filter({ type: 'lowpass', frequency: lpFreqBase, Q: 0.5, rolloff: -12 });
-    this.busLP.connect(this.masterHP);
-    if (this.convolver) this.busLP.connect(this.convolver);
-    this.busLP.connect(this.reverb);
-    this.busLP.connect(this.delay);
 
-    // LFO modulates upward from base (not parked at the bottom)
+    // High-shelf cut at 5kHz (−4dB) takes the electronic edge off upper partials
+    const hiShelf = new Tone.Filter({ type: 'highshelf', frequency: 5000, gain: -4 });
+    this.busLP.connect(hiShelf);
+    hiShelf.connect(this.masterHP);
+    if (this.convolver) hiShelf.connect(this.convolver);
+    hiShelf.connect(this.reverb);
+    hiShelf.connect(this.delay);
+
+    // LFO modulates gently upward from base
     this.busLPLFO = new Tone.LFO({
-      frequency: 0.04 + energy * 0.03,
+      frequency: 0.03 + energy * 0.02,
       min: lpFreqBase,
-      max: lpFreqBase * 1.6,
+      max: lpFreqBase * 1.4,
     }).start();
     this.busLPLFO.connect(this.busLP.frequency);
 
@@ -293,8 +296,9 @@ export class TerraSonicEngine {
     src.playbackRate.value = ev.rate;
 
     const gainNode = ctx.createGain();
+    // Softer crossfade: 45% attack, 55% release for smoother blending
     gainNode.gain.setValueAtTime(0, absTime);
-    gainNode.gain.linearRampToValueAtTime(ev.gain, absTime + ev.dur * 0.3);
+    gainNode.gain.linearRampToValueAtTime(ev.gain, absTime + ev.dur * 0.45);
     gainNode.gain.linearRampToValueAtTime(0, absTime + ev.dur);
 
     const tapeGain = ctx.createGain();
