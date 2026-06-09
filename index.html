@@ -243,6 +243,42 @@
       align-items: center;
     }
 
+    .api-key-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      border-top: 1px solid var(--line);
+      padding-top: 0.7rem;
+      margin-top: 0.1rem;
+    }
+    .api-key-row label {
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-dim);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .api-key-row input {
+      flex: 1;
+      min-width: 0;
+      background: var(--bg2);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      padding: 0.4rem 0.5rem;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+    }
+    .api-key-row input:focus { outline: none; border-color: var(--accent2); }
+    #api-key-status {
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      color: var(--accent2);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
     select {
       background: var(--bg2);
       color: var(--ink-dim);
@@ -390,7 +426,7 @@
       justify-content: space-between;
     }
   </style>
-  <script type="module" crossorigin src="/terrasonic/assets/index-Cn5du9CY.js"></script>
+  <script type="module" crossorigin src="/terrasonic/assets/index-Cnu04Hwm.js"></script>
 </head>
 <body>
   <header>
@@ -427,6 +463,11 @@
             <option value="180">3 min</option>
             <option value="300">5 min</option>
           </select>
+        </div>
+        <div class="api-key-row">
+          <label for="api-key-input">Anthropic API Key</label>
+          <input type="password" id="api-key-input" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
+          <span id="api-key-status"></span>
         </div>
       </div>
     </div>
