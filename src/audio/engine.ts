@@ -3,7 +3,7 @@ import type { ImageProfile } from '../analysis/image.js';
 import type { Feel } from '../analysis/feel.js';
 import type { Voicing } from '../music/voicing.js';
 import { buildAudioChain, type AudioChain } from './chain.js';
-import { genEvents, type GrainEvent, type PulseEvent, type ScheduleEvent } from './events.js';
+import { genEvents, type GrainEvent, type PulseEvent, type BellEvent, type ScheduleEvent } from './events.js';
 
 export type Mode = 'stillness' | 'motion';
 
@@ -124,6 +124,7 @@ export class TerraSonicEngine {
   private _scheduleEvent(ev: ScheduleEvent, absTime: number) {
     if (ev.kind === 'grain') this._playGrain(ev as GrainEvent, absTime);
     else if (ev.kind === 'pulse') this._playPulse(ev as PulseEvent, absTime);
+    else if (ev.kind === 'bell') this._playBell(ev as BellEvent, absTime);
   }
 
   private _playGrain(ev: GrainEvent, absTime: number) {
@@ -181,6 +182,29 @@ export class TerraSonicEngine {
     g.connect(this.chain!.input);
     osc.start(absTime);
     osc.stop(absTime + 1.3);
+  }
+
+  private _playBell(ev: BellEvent, absTime: number) {
+    const ctx = this.ctx!;
+    const baseFreq = 440 * Math.pow(2, (ev.midi - 69) / 12);
+    const harmonics = [1, 2.756, 5.404];
+    const hGains = [1.0, 0.35, 0.12];
+    harmonics.forEach((ratio, h) => {
+      const osc = ctx.createOscillator();
+      osc.frequency.value = baseFreq * ratio;
+      const g = ctx.createGain();
+      const decayTime = ev.dur * Math.pow(0.35, h);
+      g.gain.setValueAtTime(0, absTime);
+      g.gain.linearRampToValueAtTime(ev.gain * hGains[h], absTime + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, absTime + decayTime);
+      const panner = ctx.createStereoPanner();
+      panner.pan.value = ev.pan;
+      osc.connect(g);
+      g.connect(panner);
+      panner.connect(this.chain!.input);
+      osc.start(absTime);
+      osc.stop(absTime + decayTime + 0.1);
+    });
   }
 
   async stop() {

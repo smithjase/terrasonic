@@ -113,6 +113,27 @@ export async function exportWAV(
       g.connect(chain.input);
       osc.start(ev.t);
       osc.stop(ev.t + 1.3);
+
+    } else if (ev.kind === 'bell') {
+      const baseFreq = mtof(ev.midi);
+      const harmonics = [1, 2.756, 5.404];
+      const hGains = [1.0, 0.35, 0.12];
+      harmonics.forEach((ratio, h) => {
+        const osc = offCtx.createOscillator();
+        osc.frequency.value = baseFreq * ratio;
+        const g = offCtx.createGain();
+        const decayTime = ev.dur * Math.pow(0.35, h);
+        g.gain.setValueAtTime(0, ev.t);
+        g.gain.linearRampToValueAtTime(ev.gain * hGains[h], ev.t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, ev.t + decayTime);
+        const panner = offCtx.createStereoPanner();
+        panner.pan.value = ev.pan;
+        osc.connect(g);
+        g.connect(panner);
+        panner.connect(chain.input);
+        osc.start(ev.t);
+        osc.stop(ev.t + decayTime + 0.1);
+      });
     }
   }
 
