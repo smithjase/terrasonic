@@ -118,14 +118,56 @@
       color: var(--accent);
     }
 
-    #preview-img {
-      display: none;
-      width: 100%;
-      height: 100%;
+    .preview-img {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
       object-fit: cover;
+      opacity: 0;
+      transition: opacity 3s ease;
     }
+    .preview-img.visible { opacity: 1; }
 
     #file-input { display: none; }
+
+    #queue-strip {
+      display: flex;
+      gap: 0.4rem;
+      overflow-x: auto;
+      min-height: 0;
+      flex-wrap: wrap;
+    }
+    #queue-strip:not(:empty) {
+      padding-top: 0.6rem;
+    }
+    .queue-thumb {
+      position: relative;
+      width: 3rem;
+      height: 3rem;
+      flex-shrink: 0;
+      border: 1px solid var(--line);
+      cursor: pointer;
+      overflow: hidden;
+    }
+    .queue-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .queue-thumb.active { border-color: var(--accent); }
+    .queue-thumb.loading { opacity: 0.4; }
+    .q-remove {
+      position: absolute;
+      top: -1px; right: -1px;
+      width: 1.1rem; height: 1.1rem;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      color: var(--ink-dim);
+      font-size: 0.6rem;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      line-height: 1;
+    }
+    .queue-thumb:hover .q-remove { display: flex; }
 
     .panel-left .controls {
       padding: 1.2rem 1.4rem;
@@ -327,7 +369,7 @@
       justify-content: space-between;
     }
   </style>
-  <script type="module" crossorigin src="/terrasonic/assets/index-Bqqb61gT.js"></script>
+  <script type="module" crossorigin src="/terrasonic/assets/index-DZ9VQtVy.js"></script>
 </head>
 <body>
   <header>
@@ -341,13 +383,15 @@
       <div id="drop-zone">
         <div id="drop-placeholder">
           <div class="icon">◈</div>
-          <p><strong>Drop a nature photograph</strong><br>or click to browse<br><br>JPG · PNG · WEBP</p>
+          <p><strong>Drop nature photographs</strong><br>or click to browse<br>multiple images supported<br><br>JPG · PNG · WEBP</p>
         </div>
-        <img id="preview-img" alt="Nature photograph" />
+        <img id="preview-img-a" class="preview-img" alt="" />
+        <img id="preview-img-b" class="preview-img" alt="" />
       </div>
-      <input type="file" id="file-input" accept="image/*" />
+      <input type="file" id="file-input" accept="image/*" multiple />
 
       <div class="controls">
+        <div id="queue-strip"></div>
         <div class="btn-row">
           <button class="primary" id="btn-play" disabled>Generate &amp; Play</button>
           <button class="secondary" id="btn-stop" disabled>Stop</button>
