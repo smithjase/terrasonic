@@ -146,11 +146,6 @@ export function updateUI(state: UIState) {
       : 'Export WAV';
   }
 
-  // Mode pills
-  const stillBtn = document.getElementById('mode-stillness') as HTMLButtonElement | null;
-  const motionBtn = document.getElementById('mode-motion') as HTMLButtonElement | null;
-  if (stillBtn) stillBtn.classList.toggle('active', state.mode === 'stillness');
-  if (motionBtn) motionBtn.classList.toggle('active', state.mode === 'motion');
 }
 
 export function showImagePreview(file: File) {

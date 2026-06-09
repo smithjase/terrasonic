@@ -135,31 +135,7 @@
       gap: 0.8rem;
     }
 
-    .mode-row {
-      display: flex;
-      gap: 0.5rem;
-    }
 
-    .mode-pill {
-      flex: 1;
-      padding: 0.45rem 0;
-      background: transparent;
-      border: 1px solid var(--line);
-      color: var(--ink-dim);
-      font-family: var(--mono);
-      font-size: 0.68rem;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-
-    .mode-pill:hover { border-color: var(--accent2); color: var(--accent); }
-    .mode-pill.active {
-      background: var(--accent2);
-      border-color: var(--accent2);
-      color: var(--bg);
-    }
 
     .btn-row {
       display: flex;
@@ -371,10 +347,6 @@
       <input type="file" id="file-input" accept="image/*" />
 
       <div class="controls">
-        <div class="mode-row">
-          <button class="mode-pill active" id="mode-stillness">Stillness · ENO</button>
-          <button class="mode-pill" id="mode-motion">Motion · MOVEMENT</button>
-        </div>
         <div class="btn-row">
           <button class="primary" id="btn-play" disabled>Generate &amp; Play</button>
           <button class="secondary" id="btn-stop" disabled>Stop</button>

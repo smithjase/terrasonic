@@ -93,16 +93,6 @@ async function handleFile(file: File) {
   }
 }
 
-// --- Mode toggle ---
-document.getElementById('mode-stillness')?.addEventListener('click', () => {
-  state.mode = 'stillness';
-  render();
-});
-document.getElementById('mode-motion')?.addEventListener('click', () => {
-  state.mode = 'motion';
-  render();
-});
-
 // --- Play ---
 document.getElementById('btn-play')?.addEventListener('click', async () => {
   if (!currentProfile || !currentFeel || !currentVoicing || !currentSourceBuffer) return;
