@@ -12,6 +12,8 @@ export interface ImageProfile {
   vVal: number | null;
   vEng: number | null;
   vSpc: number | null;
+  vPulse: number | null;   // rhythmic drive from vision analysis
+  vShim: number | null;    // high-frequency sparkle from vision analysis
 }
 
 function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
@@ -116,7 +118,7 @@ export async function analyseImage(file: File): Promise<{ profile: ImageProfile;
   return {
     profile: {
       light, warm, sat, density, contrast, tilt, root, seed,
-      mood: null, desc: null, vVal: null, vEng: null, vSpc: null,
+      mood: null, desc: null, vVal: null, vEng: null, vSpc: null, vPulse: null, vShim: null,
     },
     base64,
     mediaType,

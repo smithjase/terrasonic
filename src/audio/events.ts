@@ -137,13 +137,25 @@ function mulberry32(a: number): () => number {
   };
 }
 
-// Dynamic arc: quiet intro → full build → gentle fade.
-// Gives the music a sense of journey rather than static texture.
-function buildArc(t: number, duration: number): number {
+// Journey arc — Jon Hopkins-style structure with a breakdown:
+// intro rise → first plateau → breakdown (everything drops away) →
+// second build → peak (hotter than the first plateau) → outro.
+// The breakdown is what makes the return hit emotionally.
+export function journeyArc(t: number, duration: number): number {
   const p = t / duration;
-  if (p < 0.18) return 0.55 + (p / 0.18) * 0.45;  // rises 0.55 → 1.0
-  if (p < 0.65) return 1.0;                          // full
-  return 1.0 - ((p - 0.65) / 0.35) * 0.4;           // fades 1.0 → 0.6
+  if (p < 0.10) return 0.55 + (p / 0.10) * 0.45;              // intro: 0.55 → 1.0
+  if (p < 0.38) return 1.0;                                    // first plateau
+  if (p < 0.46) return 1.0 - ((p - 0.38) / 0.08) * 0.6;       // collapse: 1.0 → 0.4
+  if (p < 0.54) return 0.4;                                    // breakdown floor
+  if (p < 0.68) return 0.4 + ((p - 0.54) / 0.14) * 0.7;       // second build: 0.4 → 1.1
+  if (p < 0.86) return 1.1;                                    // peak — hotter than before
+  return 1.1 - ((p - 0.86) / 0.14) * 0.55;                    // outro: 1.1 → 0.55
+}
+
+// True during the peak section — used to gate the arpeggio layer
+function inPeak(t: number, duration: number): boolean {
+  const p = t / duration;
+  return p >= 0.62 && p < 0.86;
 }
 
 // Melodic note sequence from chord tones — the foreground melody.
@@ -174,7 +186,7 @@ function genMelody(
   let t = 6 + rng() * 6; // Start a few seconds in — let the pad establish first
 
   while (t < duration - 8) {
-    const arc = buildArc(t, duration);
+    const arc = journeyArc(t, duration);
     if (arc < 0.3) { t += 2; continue; } // skip melody in very quiet sections
 
     // Phrase length: 3–7 notes
@@ -249,7 +261,7 @@ export function genEvents(
       const swell = 0.45 + 0.55 * Math.sin(2 * Math.PI * swellRate * t + swellPh);
 
       // Scale grain gain by build arc — quiet at start/end, full in middle
-      const arc = buildArc(t, duration);
+      const arc = journeyArc(t, duration);
       const gain = L.gainMul * (0.35 + 0.75 * swell) * arc;
 
       const valid = Math.max(0.1, SRC_DUR - dur * rate - 0.2);
@@ -268,14 +280,77 @@ export function genEvents(
     }
   });
 
-  // Sub-bass pulse in motion mode
-  if (md === 'motion' && feel.energy > 0.35) {
+  // Heartbeat pulse layer — driven by the image's rhythmic feel, not just mode.
+  // Steady sub pulses with quieter offbeats: the Hopkins heartbeat.
+  if (feel.pulse > 0.35) {
     let pt = 6 + rng() * 4; // start later — let pad and melody establish first
-    const per = 2.0 + (1 - feel.energy) * 1.6;
+    const per = 1.4 + (1 - feel.pulse) * 1.8;   // strong pulse → faster heartbeat
+    const offbeat = feel.pulse > 0.6;            // driving scenes get the offbeat too
     while (pt < duration) {
-      const arc = buildArc(pt, duration);
-      evs.push({ kind: 'pulse', t: pt, midi: p.root - 24, gain: 0.08 * arc });
-      pt += per * (0.92 + rng() * 0.16);
+      const arc = journeyArc(pt, duration);
+      // Pulse survives the breakdown at reduced level — keeps the thread alive
+      const bdFloor = arc < 0.5 ? 0.6 : 1.0;
+      evs.push({ kind: 'pulse', t: pt, midi: p.root - 24, gain: (0.05 + feel.pulse * 0.06) * arc * bdFloor });
+      if (offbeat && arc > 0.6) {
+        evs.push({ kind: 'pulse', t: pt + per * 0.5, midi: p.root - 12, gain: 0.03 * feel.pulse * arc });
+      }
+      pt += per * (0.96 + rng() * 0.08);
+    }
+  }
+
+  // Arpeggio layer — fast, quiet, hypnotic chord-tone cycling that only
+  // emerges in the peak section. The signature Hopkins move: the texture
+  // you didn't know was missing until it arrives.
+  if (feel.energy > 0.45 || feel.pulse > 0.55) {
+    const arpBase = p.root + vc.reg + 24;
+    const arpPool = [...vc.tmpl.map(iv => arpBase + iv), arpBase + 12];
+    const arpSpacing = 0.22 + (1 - feel.energy) * 0.16;
+    let at = 0;
+    let arpIdx = 0;
+    while (at < duration) {
+      if (inPeak(at, duration)) {
+        const arc = journeyArc(at, duration);
+        const peakP = ((at / duration) - 0.62) / 0.24;   // 0→1 across the peak
+        const swell = Math.sin(Math.PI * Math.min(1, Math.max(0, peakP)));  // fade in and out of the peak
+        evs.push({
+          kind: 'bell',
+          t: at,
+          midi: arpPool[arpIdx % arpPool.length],
+          gain: 0.05 * swell * arc * (0.8 + rng() * 0.4),
+          dur: 0.5 + rng() * 0.3,
+          pan: (arpIdx % 2 === 0 ? -1 : 1) * (0.3 + rng() * 0.3),
+        });
+        arpIdx += rng() < 0.2 ? 2 : 1;   // occasional skips keep it organic
+        at += arpSpacing * (0.92 + rng() * 0.16);
+      } else {
+        at += 1;
+      }
+    }
+  }
+
+  // Shimmer layer — high-octave air grains for glinting scenes
+  // (sun on water, spray, frost). Driven by the vision shimmer rating.
+  if (feel.shimmer > 0.3) {
+    const shimIv = vc.airTone + 12;
+    const shimRate = Math.pow(2, shimIv / 12);
+    let st = 8 + rng() * 6;
+    while (st < duration) {
+      const arc = journeyArc(st, duration);
+      if (arc > 0.45) {
+        const dur = Math.min(3.0 + rng() * 2.0, (SRC_DUR - 0.3) / shimRate);
+        const valid = Math.max(0.1, SRC_DUR - dur * shimRate - 0.2);
+        evs.push({
+          kind: 'grain',
+          t: st,
+          rate: shimRate,
+          dur,
+          pos: rng() * valid,
+          pan: (rng() < 0.5 ? -1 : 1) * (0.5 + rng() * 0.45),
+          gain: 0.05 * feel.shimmer * arc,
+          air: true,
+        });
+      }
+      st += (3.5 + rng() * 4.0) / (0.5 + feel.shimmer);
     }
   }
 

@@ -5,6 +5,8 @@ export interface Feel {
   energy: number;
   space: number;
   serene: number;
+  pulse: number;    // rhythmic drive 0–1: does this scene want a heartbeat?
+  shimmer: number;  // high-frequency sparkle 0–1: glints, stars, spray, frost
 }
 
 function clamp(v: number, lo = 0, hi = 1): number {
@@ -34,7 +36,15 @@ export function deriveFeel(p: ImageProfile): Feel {
     (1 - density) * 0.4 + light * 0.32 + (1 - Math.min(1, contrast * 2.2)) * 0.28 - energy * 0.15
   );
 
-  return { valence, energy, space, serene };
+  const pulse = p.vPulse !== null
+    ? p.vPulse
+    : clamp(energy * 0.75 + contrast * 0.3 - serene * 0.2);
+
+  const shimmer = p.vShim !== null
+    ? p.vShim
+    : clamp(light * 0.55 + sat * 0.35 + contrast * 0.2);
+
+  return { valence, energy, space, serene, pulse, shimmer };
 }
 
 export async function enrichWithVision(profile: ImageProfile, base64: string, mediaType: string, apiKey: string): Promise<ImageProfile> {
@@ -67,7 +77,9 @@ Return ONLY a JSON object, no other text:
   "mood": ["tag1", "tag2", "tag3"],
   "valence": 0.0,
   "energy": 0.0,
-  "space": 0.0
+  "space": 0.0,
+  "pulse": 0.0,
+  "shimmer": 0.0
 }
 
 Fields:
@@ -75,10 +87,13 @@ Fields:
 - valence: emotional tone 0–1 (0 = dark/threatening/tense, 1 = joyful/peaceful/uplifting)
 - energy: intensity 0–1 (0 = still/hushed/serene, 1 = violent/chaotic/overwhelming)
 - space: openness 0–1 (0 = enclosed/dense/intimate, 1 = vast/boundless/expansive)
+- pulse: rhythmic drive 0–1 — does the scene imply motion or beat? (0 = frozen stillness, 1 = pounding surf, eruption, stampede)
+- shimmer: high-frequency sparkle 0–1 — glints, spray, stars, frost, sun on water (0 = matte/dull, 1 = glittering)
 
-Examples: volcanic eruption → energy 0.95, valence 0.15, space 0.35
-          misty mountain lake at dawn → energy 0.1, valence 0.8, space 0.85
-          dense rainforest → energy 0.35, valence 0.65, space 0.2`,
+Examples: volcanic eruption → energy 0.95, valence 0.15, space 0.35, pulse 0.9, shimmer 0.55
+          misty mountain lake at dawn → energy 0.1, valence 0.8, space 0.85, pulse 0.05, shimmer 0.4
+          sunlit waterfall → energy 0.6, valence 0.75, space 0.5, pulse 0.65, shimmer 0.9
+          dense rainforest → energy 0.35, valence 0.65, space 0.2, pulse 0.25, shimmer 0.15`,
             },
           ],
         }],
@@ -99,6 +114,8 @@ Examples: volcanic eruption → energy 0.95, valence 0.15, space 0.35
       vVal: typeof json.valence === 'number' ? Math.max(0, Math.min(1, json.valence)) : null,
       vEng: typeof json.energy === 'number' ? Math.max(0, Math.min(1, json.energy)) : null,
       vSpc: typeof json.space === 'number' ? Math.max(0, Math.min(1, json.space)) : null,
+      vPulse: typeof json.pulse === 'number' ? Math.max(0, Math.min(1, json.pulse)) : null,
+      vShim: typeof json.shimmer === 'number' ? Math.max(0, Math.min(1, json.shimmer)) : null,
     };
   } catch {
     return profile; // silently fall back to pixel analysis

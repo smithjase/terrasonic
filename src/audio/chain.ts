@@ -1,5 +1,6 @@
 import type { ImageProfile } from '../analysis/image.js';
 import type { Feel } from '../analysis/feel.js';
+import { journeyArc } from './events.js';
 
 function mulberry32(a: number): () => number {
   return function () {
@@ -107,15 +108,20 @@ export function buildAudioChain(
   hiShelf.connect(conv);
   hiShelf.connect(delayNode);
 
-  // Pre-scheduled LFO on busLP cutoff — works in both live and offline contexts
+  // Pre-scheduled filter movement on busLP cutoff — works in both live and
+  // offline contexts. Two motions combined: a slow LFO wobble, and the
+  // journey arc — the filter closes in the breakdown and blooms open at the
+  // peak, so the whole mix darkens and brightens with the structure.
   const lfoRate = 0.03 + energy * 0.02;
   const lpMax = lpFreqBase * 1.4;
   const now = ctx.currentTime;
   const nPoints = Math.ceil(scheduleDuration * lfoRate * 24) + 2;
   for (let i = 0; i <= nPoints; i++) {
-    const t = now + (i / nPoints) * scheduleDuration;
-    const val = lpFreqBase + (lpMax - lpFreqBase) * 0.5 * (1 + Math.sin(2 * Math.PI * lfoRate * (t - now)));
-    busLP.frequency.linearRampToValueAtTime(val, t);
+    const rel = (i / nPoints) * scheduleDuration;
+    const t = now + rel;
+    const wobble = lpFreqBase + (lpMax - lpFreqBase) * 0.5 * (1 + Math.sin(2 * Math.PI * lfoRate * rel));
+    const arcMul = 0.55 + 0.5 * (journeyArc(rel, scheduleDuration) / 1.1);
+    busLP.frequency.linearRampToValueAtTime(Math.min(lpMax * 1.1, wobble * arcMul), t);
   }
 
   return {
